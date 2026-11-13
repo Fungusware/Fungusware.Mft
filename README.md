@@ -25,7 +25,7 @@ foreach (MftItem file in volume.LargestFiles(count: 10, minBytes: 1 << 20))
 - `MftMeasure.OnDisk` (default): space the file takes on the volume, from its allocated clusters (the stored size for compressed and sparse files). Files small enough to live inside their MFT record count as 0. A folder's own index counts towards that folder.
 - `MftMeasure.Length`: the length of the file's data, as Explorer shows it.
 
-Only the unnamed data stream is counted; alternate data streams are not. A file with several hard links is counted once. System files (`$MFT`, `$LogFile`, `$Secure`, ...) are included, so the folder sizes add up to what the volume reports as used, within a few percent.
+Only the unnamed data stream is counted; alternate data streams are not. A file with several hard links is counted once. System files (`$MFT`, `$LogFile`, `$Secure`, ...) are included. The total comes out below what the volume reports as used, by 9% on the test system drive (109 GB against 120 GB): space held in alternate data streams, the change journal and shadow copies is not attributed to any folder.
 
 ## Memory
 
