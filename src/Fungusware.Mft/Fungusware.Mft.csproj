@@ -12,7 +12,6 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>ntfs;mft;disk;filesystem</PackageTags>
-    <Version>1.0.0</Version>
     <RepositoryUrl>https://github.com/Fungusware/Fungusware.Mft</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Fungusware/Fungusware.Mft</PackageProjectUrl>

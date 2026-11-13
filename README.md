@@ -41,3 +41,7 @@ A volume with millions of files is read into arrays of about 17 bytes per MFT re
 ## Licence
 
 MIT.
+
+## NuGet package
+
+`Pack.ps1` builds `artifacts\Fungusware.Mft.<version>.nupkg`. The version is the build time (UTC) as `yyyy.MM.dd.HHmm`, like the other Fungusware projects; NuGet drops the leading zero of the last part, so 2026.11.13.0619 is published as 2026.11.13.619. `Pack.ps1 -Push <apikey>` also pushes it to nuget.org.
