@@ -1,58 +1,86 @@
 # Fungusware.Mft
 
-Reads an NTFS volume's Master File Table directly. Every file and folder name and size on a drive in a couple of seconds, for "where did the space go" tools. Read only, managed code, no dependencies, .NET 10.
+Lists every file and folder on a Windows drive, with sizes, in a couple of seconds. Built for "where did the space go" tools, backup tools and sync tools.
 
-Walking a drive with `Directory.EnumerateFileSystemInfos` makes one call per file. The MFT holds the same information in one contiguous table, so reading it in 8 MB pieces is limited by the disk, not by the file system API. On a system drive with 430,000 files and 195,000 folders the read takes about 1.7 s.
+It reads the NTFS Master File Table directly instead of walking the folders, so a system drive with 430,000 files and 195,000 folders takes about 1.7 seconds. It only reads, never writes, has no dependencies and targets .NET 10.
+
+## Find what is using the space
 
 ```csharp
 using Fungusware.Mft;
 
-MftVolume volume = MftReader.Read("C:");                          // needs administrator rights
+MftVolume volume = MftReader.Read("C:");
 
 Console.WriteLine($"{volume.FileCount:N0} files, {volume.TotalBytes / 1e9:0.0} GB");
 
+// Folders up to two levels deep that hold at least 256 MB
 foreach (MftItem folder in volume.Folders(minDepth: 1, maxDepth: 2, minBytes: 256 << 20))
     Console.WriteLine($"{folder.Bytes / 1e9,6:0.0} GB  {folder.Path}");
 
+// The ten biggest files over 1 MB
 foreach (MftItem file in volume.LargestFiles(count: 10, minBytes: 1 << 20))
     Console.WriteLine($"{file.Bytes / 1e6,6:0} MB  {file.Path}");
 ```
 
-`samples/MftScan` is this as a command line tool: `MftScan C:` from an elevated prompt runs every feature in turn (`--quick` for the Read part only, `--folder=C:\Users` to pick the folder for the scoped part).
+Example output:
 
-## Listing every file (backup and sync tools)
-
-`MftReader.Enumerate` streams every file and folder as it is found, so a drive with millions of files is never held in memory:
-
-```csharp
-foreach (MftEntry e in MftReader.Enumerate("C:", folder: @"C:\Users\Sam"))   // folder null = whole volume; includeFolders: false = files only
-    Console.WriteLine($"{e.Length,12:N0}  {e.ModifiedUtc:u}  {e.Attributes}  {e.Path}");
+```
+432,118 files, 109.4 GB
+  38.2 GB  C:\Users
+  31.7 GB  C:\Windows
+  14.5 GB  C:\Program Files
+   9.8 GB  C:\ProgramData
+  ...
+  4210 MB  C:\hiberfil.sys
+  3187 MB  C:\Users\Sam\Videos\holiday.mp4
 ```
 
-Each `MftEntry` has the path, folder flag, length of the data, created and modified time (UTC) and file attributes (so a junction or symbolic link shows as `ReparsePoint`). The table is read twice: first the folders (a few bytes per record), then everything, handing out entries as they turn up, in table order. Memory does not grow with the number of files; it is the folder tree plus two 8 MB read buffers per pass. The NTFS system files (`$MFT`, `$Extend`, ...) and the root are left out; a file with several hard links is listed once; alternate data streams are not described. `MftScan C:` shows it.
+## List every file
 
-## What it measures
+For backup and sync tools. Files are streamed as they are found, so a drive with millions of files never has to fit in memory.
 
-- `MftMeasure.OnDisk` (default): space the file takes on the volume, from its allocated clusters (the stored size for compressed and sparse files). Files small enough to live inside their MFT record count as 0. A folder's own index counts towards that folder.
-- `MftMeasure.Length`: the length of the file's data, as Explorer shows it.
+```csharp
+// Whole drive
+foreach (MftEntry e in MftReader.Enumerate("C:"))
+    Console.WriteLine($"{e.Length,12:N0}  {e.ModifiedUtc:u}  {e.Path}");
 
-Only the unnamed data stream is counted; alternate data streams are not. A file with several hard links is counted once. System files (`$MFT`, `$LogFile`, `$Secure`, ...) are included. The total comes out below what the volume reports as used, by 9% on the test system drive (109 GB against 120 GB): space held in alternate data streams, the change journal and shadow copies is not attributed to any folder.
+// One folder, files only
+foreach (MftEntry e in MftReader.Enumerate("C:", folder: @"C:\Users\Sam", includeFolders: false))
+    Console.WriteLine(e.Path);
+```
 
-## Memory
+Each entry gives you the path, whether it is a folder, the size, created and modified time (UTC) and the file attributes. A junction or symbolic link shows up as `ReparsePoint`.
 
-A volume with millions of files is read into arrays of about 17 bytes per MFT record. Names are the expensive part, so only folders and files of at least `MftOptions.KeepFileNamesAtLeast` (1 MiB) keep theirs. Everything else still counts towards its folders.
+## Sizes: on disk or as Explorer shows
 
-## Requirements and limits
+```csharp
+var options = new MftOptions { Measure = MftMeasure.Length };
+MftVolume volume = MftReader.Read("C:", options);
+```
 
-- Windows, NTFS. Opening `\.\C:` needs administrator rights (`UnauthorizedAccessException` otherwise); a service running as LocalSystem has them. Nothing is written.
-- ReFS, exFAT, FAT and network shares are not read. Use a normal directory walk for those.
-- An MFT so fragmented that its own layout needs an attribute list throws `NotSupportedException`.
-- The table is read while the volume is in use, so a file created or deleted during the read may be missed or counted at its old size.
+- `MftMeasure.OnDisk` (default): the space the file takes on the drive.
+- `MftMeasure.Length`: the size Explorer shows.
+
+The total is usually a few percent below what Windows reports as used, because space held by alternate data streams, the change journal and shadow copies does not belong to any folder.
+
+## Try it
+
+`samples/MftScan` is a small command line tool that runs everything above. From an administrator prompt:
+
+```
+MftScan C:
+MftScan C:  --quick
+MftScan C:  --folder=C:\Users
+```
+
+## Good to know
+
+- Windows and NTFS only. ReFS, exFAT, FAT and network shares are not supported.
+- Needs administrator rights (or a service running as LocalSystem). Without them you get an `UnauthorizedAccessException`.
+- Hard links are counted once. Alternate data streams are not counted. The NTFS system files are left out of `Enumerate`.
+- If files change while the drive is being read, a new or deleted file may be missed.
+- Memory stays low: names are only kept for folders and for files of 1 MiB or more (`MftOptions.KeepFileNamesAtLeast`). Smaller files still count towards their folders.
 
 ## Licence
 
 MIT.
-
-## NuGet package
-
-`Pack.ps1` builds `artifacts\Fungusware.Mft.<version>.nupkg`. The version is the build time (UTC) as `yyyy.MM.dd.HHmm`, like the other Fungusware projects; NuGet drops the leading zero of the last part, so 2026.11.13.0619 is published as 2026.11.13.619. `Pack.ps1 -Push <apikey>` also pushes it to nuget.org.
