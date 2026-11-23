@@ -18,7 +18,7 @@ foreach (MftItem file in volume.LargestFiles(count: 10, minBytes: 1 << 20))
     Console.WriteLine($"{file.Bytes / 1e6,6:0} MB  {file.Path}");
 ```
 
-`samples/MftScan` is this as a command line tool: `MftScan C:` from an elevated prompt.
+`samples/MftScan` is this as a command line tool: `MftScan C:` from an elevated prompt runs every feature in turn (`--quick` for the Read part only, `--folder=C:\Users` to pick the folder for the scoped part).
 
 ## Listing every file (backup and sync tools)
 
@@ -29,7 +29,7 @@ foreach (MftEntry e in MftReader.Enumerate("C:", folder: @"C:\Users\Sam"))   // 
     Console.WriteLine($"{e.Length,12:N0}  {e.ModifiedUtc:u}  {e.Attributes}  {e.Path}");
 ```
 
-Each `MftEntry` has the path, folder flag, length of the data, created and modified time (UTC) and file attributes (so a junction or symbolic link shows as `ReparsePoint`). The table is read twice: first the folders (a few bytes per record), then everything, handing out entries as they turn up, in table order. Memory does not grow with the number of files; it is the folder tree plus two 8 MB read buffers per pass. The NTFS system files (`$MFT`, `$Extend`, ...) and the root are left out; a file with several hard links is listed once; alternate data streams are not described. `MftScan C: --list=C:\Users` shows it.
+Each `MftEntry` has the path, folder flag, length of the data, created and modified time (UTC) and file attributes (so a junction or symbolic link shows as `ReparsePoint`). The table is read twice: first the folders (a few bytes per record), then everything, handing out entries as they turn up, in table order. Memory does not grow with the number of files; it is the folder tree plus two 8 MB read buffers per pass. The NTFS system files (`$MFT`, `$Extend`, ...) and the root are left out; a file with several hard links is listed once; alternate data streams are not described. `MftScan C:` shows it.
 
 ## What it measures
 
