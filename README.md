@@ -20,6 +20,17 @@ foreach (MftItem file in volume.LargestFiles(count: 10, minBytes: 1 << 20))
 
 `samples/MftScan` is this as a command line tool: `MftScan C:` from an elevated prompt.
 
+## Listing every file (backup and sync tools)
+
+`MftReader.Enumerate` streams every file and folder as it is found, so a drive with millions of files is never held in memory:
+
+```csharp
+foreach (MftEntry e in MftReader.Enumerate("C:", folder: @"C:\Users\Sam"))   // folder null = whole volume; includeFolders: false = files only
+    Console.WriteLine($"{e.Length,12:N0}  {e.ModifiedUtc:u}  {e.Attributes}  {e.Path}");
+```
+
+Each `MftEntry` has the path, folder flag, length of the data, created and modified time (UTC) and file attributes (so a junction or symbolic link shows as `ReparsePoint`). The table is read twice: first the folders (a few bytes per record), then everything, handing out entries as they turn up, in table order. Memory does not grow with the number of files; it is the folder tree plus two 8 MB read buffers per pass. The NTFS system files (`$MFT`, `$Extend`, ...) and the root are left out; a file with several hard links is listed once; alternate data streams are not described. `MftScan C: --list=C:\Users` shows it.
+
 ## What it measures
 
 - `MftMeasure.OnDisk` (default): space the file takes on the volume, from its allocated clusters (the stored size for compressed and sparse files). Files small enough to live inside their MFT record count as 0. A folder's own index counts towards that folder.

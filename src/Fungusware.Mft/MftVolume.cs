@@ -19,6 +19,7 @@ public sealed class MftVolume
 
     internal const byte File = 1, Folder = 2;
     internal const int RootRecord = 5;
+    internal const int FirstUserRecord = 16; // records 0 to 15 are the NTFS system files ($MFT, $LogFile, ...), the root (5) aside
 
     internal MftVolume(string root, int[] parent, long[] own, long[] total, byte[] kind, Dictionary<int, string> names, long files, long folders)
     {
@@ -72,6 +73,85 @@ public sealed class MftVolume
         while (best.TryDequeue(out int i, out _)) result.Add(new MftItem(PathOf(i), _own[i], depth[_parent[i]] + 1));
         result.Reverse();
         return result;
+    }
+
+    internal int RecordCount => _kind.Length;
+
+    internal static DateTime ToDateTime(long fileTime) => fileTime > 0 && fileTime <= 2650467743999999999L ? DateTime.FromFileTimeUtc(fileTime) : DateTime.MinValue;
+
+    internal static string Combine(string parent, string name) => parent.EndsWith('\\') ? parent + name : parent + '\\' + name;
+
+    /// <summary>The path of a folder, remembered in <paramref name="cache"/> (which the caller keeps for the next ask).</summary>
+    internal string FolderPath(int record, Dictionary<int, string> cache)
+    {
+        var chain = new List<int>(16);
+        string path = _root;
+
+        for (int at = record, step = 0; at >= 0 && step < 512; step++)
+        {
+            if (at == RootRecord) break;
+            if (cache.TryGetValue(at, out string? known)) { path = known; break; }
+            chain.Add(at);
+            int next = _parent[at];
+            if (next == at) break;
+            at = next;
+        }
+
+        for (int k = chain.Count - 1; k >= 0; k--)
+            path = cache[chain[k]] = Combine(path, _names.TryGetValue(chain[k], out string? name) ? name : "?");
+
+        return path;
+    }
+
+    /// <summary>The record of a folder, found by walking down from the root one name at a time.</summary>
+    internal int FindFolder(string folder)
+    {
+        string? root = Path.GetPathRoot(folder);
+        if (root == null || root.Length < 2 || !root.StartsWith(_root[..2], StringComparison.OrdinalIgnoreCase)) throw new DirectoryNotFoundException(folder + " is not on " + _root);
+
+        int at = RootRecord;
+        foreach (string part in folder[root.Length..].Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            int found = -1;
+            for (int i = FirstUserRecord; i < _kind.Length && found < 0; i++)
+                if (_kind[i] == Folder && _parent[i] == at && _names.TryGetValue(i, out string? name) && name.Equals(part, StringComparison.OrdinalIgnoreCase)) found = i;
+            at = found >= 0 ? found : throw new DirectoryNotFoundException(folder + " was not found on " + _root);
+        }
+
+        return at;
+    }
+
+    /// <summary>Per record: 1 for a folder that is in the chosen subtree (everything when <paramref name="limit"/> is -1) and not part of the NTFS system files, 2 for one that is not.</summary>
+    internal byte[] Classify(int limit)
+    {
+        var state = new byte[_kind.Length];
+        var chain = new List<int>(32);
+
+        for (int i = 0; i < _kind.Length; i++)
+        {
+            if (_kind[i] != Folder || state[i] != 0) continue;
+
+            chain.Clear();
+            byte result = 2;
+            for (int at = i, step = 0; at >= 0 && step < 512; step++)
+            {
+                if (state[at] != 0) { result = state[at]; break; }
+                if (_kind[at] != Folder) break;
+                if (at < FirstUserRecord && at != RootRecord) break; // a system folder, and so is everything below it
+
+                chain.Add(at);
+                if (at == limit || (at == RootRecord && limit < 0)) { result = 1; break; }
+                if (at == RootRecord) break;
+
+                int next = _parent[at];
+                if (next == at) break;
+                at = next;
+            }
+
+            foreach (int c in chain) state[c] = result;
+        }
+
+        return state;
     }
 
     /// <summary>The path of a record whose name was kept (folders always, files when big enough). A record cut off from the root gets a path that starts with <c>?\</c>.</summary>
